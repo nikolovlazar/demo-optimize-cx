@@ -1,36 +1,171 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# OptimizeCX Store - Performance Demo
 
-## Getting Started
+An ecommerce demo application instrumented with Sentry for performance monitoring.
 
-First, run the development server:
+## 🎯 Project Goals
+
+This demo is designed to showcase a full-stack ecommerce experience built with Next.js, from product browsing to checkout.
+
+## 🏗️ Tech Stack
+
+- **Frontend**: Next.js 14+ (App Router), React, TypeScript, Tailwind CSS
+- **UI Components**: shadcn/ui
+- **State Management**: Zustand (cart management)
+- **Database**: PostgreSQL (Neon DB)
+- **ORM**: Drizzle ORM
+- **Images**: Unsplash API
+- **Monitoring**: Sentry
+
+## 🚀 Getting Started
+
+### Prerequisites
+
+- Node.js 18+ installed
+- npm or yarn package manager
+- Neon DB account (or any PostgreSQL database)
+- Unsplash API access key
+- Sentry account and DSN
+
+### 1. Environment Setup
+
+Create a `.env.local` file in the root directory with the following variables:
+
+```bash
+# Database (Neon DB connection string)
+DATABASE_URL=your_neon_database_url_here
+
+# Sentry
+NEXT_PUBLIC_SENTRY_DSN=your_sentry_dsn_here
+SENTRY_ORG=your_sentry_org
+SENTRY_PROJECT=your_sentry_project
+
+# Unsplash API
+UNSPLASH_ACCESS_KEY=your_unsplash_access_key_here
+```
+
+#### Getting the Required Keys:
+
+**Neon DB:**
+1. Go to [Neon.tech](https://neon.tech)
+2. Create a new project
+3. Copy the connection string from the dashboard
+
+**Unsplash API:**
+1. Go to [Unsplash Developers](https://unsplash.com/developers)
+2. Create a new application
+3. Copy the Access Key
+
+**Sentry:**
+1. Go to [Sentry.io](https://sentry.io)
+2. Create a new Next.js project
+3. Copy the DSN and project details
+
+### 2. Install Dependencies
+
+```bash
+npm install
+```
+
+### 3. Setup Database
+
+Push the database schema to your Neon DB:
+
+```bash
+npm run db:push
+```
+
+### 4. Seed the Database
+
+Populate the database with 100-150 random products from Unsplash:
+
+```bash
+npm run db:seed
+```
+
+This will:
+- Generate 100-150 products with realistic data
+- Fetch high-quality images from Unsplash (1 poster + 3-5 gallery images per product)
+- Create 2-4 variants per product (colors, sizes, materials, etc.)
+
+**Note**: Seeding may take 5-10 minutes due to Unsplash API rate limits.
+
+### 5. Run the Development Server
 
 ```bash
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Open [http://localhost:3000](http://localhost:3000) in your browser.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## 🎨 Key Features
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+- **Homepage**: Product grid with 24 products
+- **Product Details**: Image gallery, variant selector, add to cart
+- **Shopping Cart**: Quantity management, item removal, subtotal
+- **Checkout**: Full checkout form with order summary
+- **Responsive Design**: Mobile-first, works on all screen sizes
+- **Real Images**: High-quality Unsplash images for realistic performance testing
 
-## Learn More
+## 📁 Project Structure
 
-To learn more about Next.js, take a look at the following resources:
+```
+├── src/
+│   ├── app/
+│   │   ├── api/products/          # API routes
+│   │   ├── cart/                   # Cart page
+│   │   ├── checkout/               # Checkout flow
+│   │   ├── products/[id]/          # Product details
+│   │   └── page.tsx                # Homepage
+│   ├── components/
+│   │   ├── ui/                     # shadcn/ui components
+│   │   ├── Header.tsx              # Navigation header
+│   │   ├── ProductCard.tsx         # Product card component
+│   │   └── ...                     # Other components
+│   ├── db/
+│   │   ├── schema.ts               # Drizzle schema
+│   │   ├── index.ts                # Database connection
+│   │   └── seed.ts                 # Seeding script
+│   └── store/
+│       └── cart.ts                 # Zustand cart store
+├── drizzle.config.ts               # Drizzle configuration
+├── next.config.ts                  # Next.js + Sentry config
+└── instrumentation.ts              # Sentry instrumentation
+```
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+## 🐛 Troubleshooting
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+### Database Connection Issues
 
-## Deploy on Vercel
+If you see "Unable to load products":
+1. Verify your `DATABASE_URL` in `.env.local`
+2. Ensure your Neon DB is active
+3. Run `npm run db:push` again
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+### Seed Script Failures
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+If seeding fails:
+1. Check your `UNSPLASH_ACCESS_KEY`
+2. Ensure you haven't hit Unsplash rate limits (50 requests/hour on free tier)
+3. Try running the seed script again later
+
+### Images Not Loading
+
+If images don't load:
+1. Check if Unsplash images are accessible
+2. Verify Next.js image configuration in `next.config.ts`
+3. Check browser console for CORS errors
+
+## 📝 Scripts
+
+- `npm run dev` - Start development server
+- `npm run build` - Build for production
+- `npm run start` - Start production server
+- `npm run lint` - Run ESLint
+- `npm run db:generate` - Generate Drizzle migrations
+- `npm run db:push` - Push schema to database
+- `npm run db:studio` - Open Drizzle Studio
+- `npm run db:seed` - Seed database with products
+
+## 📄 License
+
+MIT
