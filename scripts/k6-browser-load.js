@@ -2,6 +2,7 @@ import { browser } from "k6/browser";
 import exec from "k6/execution";
 
 const BASE_URL = __ENV.BASE_URL ?? "https://demo-optimize-cx.vercel.app";
+console.log("BASE URL", BASE_URL);
 const CART_STORAGE_KEY = "cart-storage";
 const OPTIMIZATION_MODES = ["none", "prefetch", "prerender"];
 const BROWSER_HEADLESS =
@@ -57,8 +58,8 @@ export const options = {
     prefetch_comparison: {
       executor: "constant-vus",
       exec: "userJourney",
-      vus: Number(__ENV.VUS ?? 2),
-      duration: __ENV.DURATION ?? "10m",
+      vus: Number(__ENV.VUS ?? 6),
+      duration: __ENV.DURATION ?? "60m",
       options: {
         browser: {
           type: "chromium",
@@ -331,8 +332,9 @@ async function waitForText(page, selector, text, timeout = 10_000) {
 async function waitForUrlPath(page, expectedPath, timeout = 10_000) {
   const deadline = Date.now() + timeout;
   while (Date.now() < deadline) {
-    const currentUrl = new URL(await page.url());
-    if (currentUrl.pathname === expectedPath) {
+    const href = await page.url();
+    const pathname = extractPathname(href);
+    if (pathname === expectedPath) {
       return;
     }
     await page.waitForTimeout(100);
@@ -388,4 +390,15 @@ function randomBetween(min, max) {
     return min;
   }
   return Math.floor(Math.random() * (max - min + 1)) + min;
+}
+
+function extractPathname(href) {
+  const withoutProtocol = href.replace(/^[a-zA-Z]+:\/\//, "");
+  const slashIndex = withoutProtocol.indexOf("/");
+  if (slashIndex === -1) {
+    return "/";
+  }
+  const pathAndQuery = withoutProtocol.slice(slashIndex);
+  const pathname = pathAndQuery.split("?")[0];
+  return pathname || "/";
 }
