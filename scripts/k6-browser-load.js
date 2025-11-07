@@ -1,9 +1,27 @@
 import { browser } from "k6/browser";
 import exec from "k6/execution";
 
-const BASE_URL = __ENV.BASE_URL ?? "http://localhost:3000";
+const BASE_URL = __ENV.BASE_URL ?? "https://demo-optimize-cx.vercel.app";
 const CART_STORAGE_KEY = "cart-storage";
 const OPTIMIZATION_MODES = ["none", "prefetch", "preload", "prerender"];
+const BROWSER_HEADLESS =
+  String(
+    __ENV.K6_BROWSER_HEADLESS ??
+      __ENV.BROWSER_HEADLESS ??
+      __ENV.HEADLESS ??
+      "true",
+  )
+    .toLowerCase()
+    .trim() !== "false";
+const VITALS_SETTLE_MS = Number(__ENV.WEB_VITALS_WAIT_MS ?? 1500);
+const HOVER_DELAY_MS = Number(__ENV.HOVER_DELAY_MS ?? 300);
+const PRODUCT_DWELL_MS = Number(__ENV.PRODUCT_DWELL_MS ?? 2500);
+const VISIBLE_BROWSER_ARGS = [
+  "--start-maximized",
+  "--force-device-scale-factor=1",
+  "--disable-backgrounding-occluded-windows",
+  "--enable-gpu",
+];
 
 const FIRST_NAMES = [
   "Alex",
@@ -39,12 +57,13 @@ export const options = {
     prefetch_comparison: {
       executor: "constant-vus",
       exec: "userJourney",
-      vus: Number(__ENV.VUS ?? 4),
-      duration: __ENV.DURATION ?? "15m",
+      vus: Number(__ENV.VUS ?? 2),
+      duration: __ENV.DURATION ?? "10m",
       options: {
         browser: {
           type: "chromium",
-          headless: true,
+          headless: BROWSER_HEADLESS,
+          args: BROWSER_HEADLESS ? [] : VISIBLE_BROWSER_ARGS,
         },
       },
     },
@@ -62,7 +81,7 @@ export async function userJourney() {
     await primeOptimizationState(page, optimizationMode);
     const productUrl = await visitHomeAndPickProduct(page);
     const addedToCart = await viewProductAndMaybeAdd(page, productUrl);
-    await visitCart(page);
+    await viewCartThroughHeader(page);
 
     if (addedToCart) {
       await proceedToCheckout(page);
@@ -70,6 +89,7 @@ export async function userJourney() {
     }
 
     await clearCartState(page);
+    await allowWebVitalsToSettle(page, "journey-end");
     await page.waitForTimeout(randomBetween(1_000, 3_000));
   } catch (error) {
     console.error(
@@ -94,21 +114,33 @@ async function primeOptimizationState(page, optimizationMode) {
   await page.waitForSelector("body");
 
   await waitForText(page, "h1", "Featured Products");
+  await simulateUserGesture(page, "home-load");
+  await allowWebVitalsToSettle(page, "home-load");
 }
 
 async function visitHomeAndPickProduct(page) {
-  const productLinks = await page.evaluate(() => {
-    return Array.from(document.querySelectorAll('a[href^="/products/"]')).map(
-      (anchor) => anchor.href.toString(),
-    );
-  });
+  const listLocator = page.locator('a[href^="/products/"]');
+  await listLocator.first().waitFor({ timeout: 15_000 });
 
-  if (productLinks.length === 0) {
+  const linkCount = await listLocator.count();
+  if (linkCount === 0) {
     throw new Error("No products found on homepage");
   }
 
-  const target = productLinks[randomBetween(0, productLinks.length - 1)];
-  return target;
+  const targetIndex = randomBetween(0, linkCount - 1);
+  const chosenHref = await listLocator.nth(targetIndex).getAttribute("href");
+
+  if (!chosenHref) {
+    throw new Error("Selected product link has no href attribute");
+  }
+
+  const normalizedBase = BASE_URL.endsWith("/")
+    ? BASE_URL.slice(0, -1)
+    : BASE_URL;
+  const absoluteHref = chosenHref.startsWith("http")
+    ? chosenHref
+    : `${normalizedBase}${chosenHref.startsWith("/") ? "" : "/"}${chosenHref}`;
+  return absoluteHref;
 }
 
 async function viewProductAndMaybeAdd(page, productUrl) {
@@ -131,62 +163,57 @@ async function viewProductAndMaybeAdd(page, productUrl) {
   const targetPath = normalizedHref.split("?")[0] || "/";
 
   await targetLink.hover();
-  await page.waitForTimeout(300);
+  await page.waitForTimeout(HOVER_DELAY_MS);
   await targetLink.click();
 
-  const deadline = Date.now() + 10_000;
-  let navigated = false;
-
-  while (Date.now() < deadline) {
-    const currentUrl = await page.url();
-    if (currentUrl.includes(targetPath)) {
-      navigated = true;
-      break;
-    }
-    await page.waitForTimeout(100);
-  }
-
-  if (!navigated) {
-    const finalUrl = await page.url();
-    throw new Error(
-      `Navigation mismatch: expected to include ${targetPath}, got ${finalUrl}`,
-    );
-  }
-
+  await waitForUrlPath(page, targetPath, 10_000);
   await page.waitForLoadState("networkidle");
   await waitForText(page, "button", "Add to Cart");
+  await simulateUserGesture(page, "product-load");
+  await allowWebVitalsToSettle(page, "product-load");
 
   const shouldAdd = Math.random() >= 0.4;
+  let addedToCart = false;
 
-  if (!shouldAdd) {
-    return false;
-  }
+  if (shouldAdd) {
+    const added = await page.evaluate(() => {
+      const buttons = Array.from(document.querySelectorAll("button"));
+      const targetButton = buttons.find((btn) =>
+        btn.textContent?.includes("Add to Cart"),
+      );
+      if (targetButton instanceof HTMLButtonElement) {
+        targetButton.click();
+        return true;
+      }
+      return false;
+    });
 
-  const added = await page.evaluate(() => {
-    const buttons = Array.from(document.querySelectorAll("button"));
-    const targetButton = buttons.find((btn) =>
-      btn.textContent?.includes("Add to Cart"),
-    );
-    if (targetButton) {
-      targetButton.click();
-      return true;
+    if (!added) {
+      console.warn(`VU ${__VU}: Add to Cart button not found`);
+    } else {
+      await page.waitForTimeout(500);
+      addedToCart = true;
     }
-    return false;
-  });
-
-  if (!added) {
-    console.warn(`VU ${__VU}: Add to Cart button not found`);
-    return false;
   }
 
-  await page.waitForTimeout(500);
-  return true;
+  if (PRODUCT_DWELL_MS > 0) {
+    await page.waitForTimeout(PRODUCT_DWELL_MS);
+  }
+
+  return addedToCart;
 }
 
-async function visitCart(page) {
-  await page.goto(`${BASE_URL}/cart`);
-  await page.waitForLoadState("networkidle");
+async function viewCartThroughHeader(page) {
+  const cartLink = page.locator('header a[href="/cart"]');
+  await cartLink.first().waitFor({ timeout: 15_000 });
+  await Promise.all([
+    waitForUrlPath(page, "/cart", 10_000),
+    cartLink.first().click(),
+  ]);
+
   await page.waitForSelector("main", { timeout: 10_000 });
+  await simulateUserGesture(page, "cart");
+  await allowWebVitalsToSettle(page, "cart");
 }
 
 async function proceedToCheckout(page) {
@@ -208,7 +235,10 @@ async function proceedToCheckout(page) {
     throw new Error("Checkout button not available");
   }
 
-  await page.waitForNavigation({ waitUntil: "load", timeout: 10_000 });
+  await waitForUrlPath(page, "/checkout", 10_000);
+  await page.waitForSelector("form", { timeout: 10_000 });
+  await simulateUserGesture(page, "checkout-init");
+  await allowWebVitalsToSettle(page, "checkout-init");
 }
 
 async function completeCheckout(page) {
@@ -254,8 +284,10 @@ async function completeCheckout(page) {
     throw new Error("Submit button not available");
   }
 
-  await page.waitForNavigation({ waitUntil: "load", timeout: 10_000 });
+  await waitForUrlPath(page, "/checkout/success", 10_000);
   await waitForText(page, "h1", "Order Successful");
+  await simulateUserGesture(page, "order-success");
+  await allowWebVitalsToSettle(page, "order-success");
 }
 
 async function fillInput(page, selector, value) {
@@ -294,6 +326,57 @@ async function waitForText(page, selector, text, timeout = 10_000) {
   }
 
   throw new Error(`Timeout waiting for ${selector} containing "${text}"`);
+}
+
+async function waitForUrlPath(page, expectedPath, timeout = 10_000) {
+  const deadline = Date.now() + timeout;
+  while (Date.now() < deadline) {
+    const currentUrl = new URL(await page.url());
+    if (currentUrl.pathname === expectedPath) {
+      return;
+    }
+    await page.waitForTimeout(100);
+  }
+  const finalUrl = await page.url();
+  throw new Error(
+    `Navigation mismatch: expected ${expectedPath}, current ${finalUrl}`,
+  );
+}
+
+async function simulateUserGesture(page, contextLabel) {
+  try {
+    await page.keyboard.press("Shift");
+    await page.waitForTimeout(25);
+    await page.keyboard.press("Tab");
+    await page.waitForTimeout(25);
+    const viewport = page.viewportSize();
+    if (viewport) {
+      await page.mouse.move(viewport.width / 2, viewport.height - 10, {
+        steps: 2,
+      });
+    } else {
+      await page.mouse.move(400, 500, { steps: 2 });
+    }
+  } catch (error) {
+    console.warn(
+      `Synthetic interaction failed (${contextLabel ?? "unknown"})`,
+      error,
+    );
+  }
+}
+
+async function allowWebVitalsToSettle(page, contextLabel) {
+  if (!Number.isFinite(VITALS_SETTLE_MS) || VITALS_SETTLE_MS <= 0) {
+    return;
+  }
+  try {
+    await page.waitForTimeout(VITALS_SETTLE_MS);
+  } catch (error) {
+    console.warn(
+      `Web Vitals settle wait failed (${contextLabel ?? "unknown"})`,
+      error,
+    );
+  }
 }
 
 function pickRandom(list) {
