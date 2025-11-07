@@ -3,7 +3,7 @@ import exec from "k6/execution";
 
 const BASE_URL = __ENV.BASE_URL ?? "https://demo-optimize-cx.vercel.app";
 const CART_STORAGE_KEY = "cart-storage";
-const OPTIMIZATION_MODES = ["none", "prefetch", "preload", "prerender"];
+const OPTIMIZATION_MODES = ["none", "prefetch", "prerender"];
 const BROWSER_HEADLESS =
   String(
     __ENV.K6_BROWSER_HEADLESS ??
